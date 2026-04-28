@@ -11,7 +11,10 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     output_dir: str = "./outputs"
 
-    # ComfyUI
+    # ComfyUI — 两种方式选一：
+    # 1. COMFYUI_URL（完整 URL，会覆盖 HOST+PORT）
+    # 2. COMFYUI_HOST + COMFYUI_PORT（分别指定）
+    comfyui_url_override: str = ""       # 对应 .env 的 COMFYUI_URL
     comfyui_host: str = "127.0.0.1"
     comfyui_port: int = 8188
     comfyui_timeout: int = 300
@@ -30,6 +33,12 @@ class Settings(BaseSettings):
 
     @property
     def comfyui_url(self) -> str:
+        """返回 ComfyUI 完整 URL
+        
+        优先级：COMFYUI_URL > COMFYUI_HOST:COMFYUI_PORT
+        """
+        if self.comfyui_url_override:
+            return self.comfyui_url_override.rstrip("/")
         return f"http://{self.comfyui_host}:{self.comfyui_port}"
 
 

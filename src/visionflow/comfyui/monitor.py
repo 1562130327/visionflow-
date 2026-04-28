@@ -1,5 +1,6 @@
 """生成任务监控器"""
 
+import time
 import asyncio
 from dataclasses import dataclass, field
 from enum import Enum
@@ -42,14 +43,23 @@ class ComfyUIMonitor:
         try:
             await self.client.wait_for_completion(prompt_id)
             task.state = TaskState.COMPLETED
-            image_urls = await self.client.get_output_images(prompt_id)
-            task.output_urls = image_urls
+            file_urls = await self.client.get_output_images(prompt_id)
+            task.output_urls = file_urls
             if save_dir:
                 from pathlib import Path
-                for i, url in enumerate(image_urls):
-                    save_path = f"{save_dir}/{prompt_id}_{i}.png"
+                for i, url in enumerate(file_urls):
+                    # 根据 URL 后缀决定保存格式
+                    ext = ".png"
+                    if "gif" in url or ".gif" in url:
+                        ext = ".gif"
+                    elif "mp4" in url or ".mp4" in url:
+                        ext = ".mp4"
+                    elif "webp" in url or ".webp" in url:
+                        ext = ".webp"
+                    import uuid as _uuid
+                    save_path = f"{save_dir}/{prompt_id}_{i}{ext}"
                     await self.client.download_image(url, save_path)
-            logger.info(f"任务完成: {prompt_id} | 输出: {len(image_urls)} 个文件")
+            logger.info(f"任务完成: {prompt_id} | 输出: {len(file_urls)} 个文件")
         except Exception as e:
             task.state = TaskState.FAILED
             task.error = str(e)
