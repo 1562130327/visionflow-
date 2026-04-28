@@ -1,0 +1,14 @@
+node_modules/
+__pycache__/
+*.pyc
+.env
+outputs/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.DS_Store
+*.safetensors
+*.ckpt
+*.pt

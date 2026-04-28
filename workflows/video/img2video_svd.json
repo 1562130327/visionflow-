@@ -1,0 +1,55 @@
+{
+ "1": {
+  "class_type": "CheckpointLoaderSimple",
+  "inputs": {
+   "ckpt_name": "svd_xt_1_1.safetensors"
+  }
+ },
+ "2": {
+  "class_type": "LoadImage",
+  "inputs": {
+   "image": "{{IMAGE_INPUT}}"
+  }
+ },
+ "3": {
+  "class_type": "SVD_img2vid_Conditioning",
+  "inputs": {
+   "image": ["2", 0],
+   "clip_vision": "clip_vision_g.safetensors",
+   "motion_bucket_id": 127,
+   "fps": 6,
+   "augmentation_level": 0.0,
+   "width": "{{WIDTH}}",
+   "height": "{{HEIGHT}}"
+  }
+ },
+ "4": {
+  "class_type": "KSampler",
+  "inputs": {
+   "seed": "{{SEED}}",
+   "steps": "{{STEPS}}",
+   "cfg": 2.5,
+   "sampler_name": "euler",
+   "scheduler": "normal",
+   "denoise": 1.0,
+   "model": ["1", 0],
+   "positive": ["3", 0],
+   "negative": ["3", 1],
+   "latent_image": ["3", 2]
+  }
+ },
+ "5": {
+  "class_type": "VAEDecode",
+  "inputs": {
+   "samples": ["4", 0],
+   "vae": ["1", 2]
+  }
+ },
+ "6": {
+  "class_type": "SaveImage",
+  "inputs": {
+   "filename_prefix": "visionflow_video",
+   "images": ["5", 0]
+  }
+ }
+}

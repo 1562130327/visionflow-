@@ -1,0 +1,77 @@
+{
+ "1": {
+  "class_type": "CheckpointLoaderSimple",
+  "inputs": {
+   "ckpt_name": "{{CHECKPOINT}}"
+  }
+ },
+ "2": {
+  "class_type": "CLIPTextEncode",
+  "inputs": {
+   "text": "{{PROMPT}}",
+   "clip": ["1", 1]
+  }
+ },
+ "3": {
+  "class_type": "CLIPTextEncode",
+  "inputs": {
+   "text": "{{NEGATIVE}}",
+   "clip": ["1", 1]
+  }
+ },
+ "4": {
+  "class_type": "ADE_AnimateDiffLoaderWithContext",
+  "inputs": {
+   "model": ["1", 0],
+   "model_name": "mm_sd_v15_v2.ckpt",
+   "beta_schedule": "sqrt_linear (AnimateDiff)",
+   "context_options": ["5", 0]
+  }
+ },
+ "5": {
+  "class_type": "ADE_StandardStaticContextOptions",
+  "inputs": {
+   "context_length": 16,
+   "context_stride": 1,
+   "context_overlap": 4,
+   "closed_loop": false
+  }
+ },
+ "6": {
+  "class_type": "EmptyLatentImage",
+  "inputs": {
+   "width": "{{WIDTH}}",
+   "height": "{{HEIGHT}}",
+   "batch_size": "{{DURATION}}"
+  }
+ },
+ "7": {
+  "class_type": "KSampler",
+  "inputs": {
+   "seed": "{{SEED}}",
+   "steps": "{{STEPS}}",
+   "cfg": "{{CFG}}",
+   "sampler_name": "dpmpp_2m",
+   "scheduler": "karras",
+   "denoise": 1.0,
+   "model": ["4", 0],
+   "positive": ["2", 0],
+   "negative": ["3", 0],
+   "latent_image": ["6", 0]
+  }
+ },
+ "8": {
+  "class_type": "VAEDecode",
+  "inputs": {
+   "samples": ["7", 0],
+   "vae": ["1", 2]
+  }
+ },
+ "9": {
+  "class_type": "SaveImage",
+  "inputs": {
+   "filename_prefix": "visionflow_animatediff",
+   "images": ["8", 0]
+  }
+ }
+}
