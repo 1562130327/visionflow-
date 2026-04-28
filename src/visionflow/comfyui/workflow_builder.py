@@ -1,12 +1,12 @@
 """
 工作流动态组装器
 
-根据意图 + 规划，将工作流模板中的占位符替换为实际参数，
-动态添加/移除节点，生成最终可执行的工作流 JSON。
+直接操作工作流 JSON 的节点字段（ComfyUI API 格式），
+不再依赖 {{占位符}} 模板替换。
 """
 
-import copy
 import json
+import random
 from loguru import logger
 from visionflow.comfyui.workflow_loader import WorkflowLoader
 
@@ -14,106 +14,128 @@ from visionflow.comfyui.workflow_loader import WorkflowLoader
 class WorkflowBuilder:
     """工作流动态组装器"""
 
-    DEFAULTS = {
-        "PROMPT": "",
-        "NEGATIVE": "low quality, blurry, deformed, watermark",
-        "WIDTH": 1024,
-        "HEIGHT": 1024,
-        "STEPS": 25,
-        "CFG": 7.0,
-        "SEED": -1,
-        "CHECKPOINT": "sd_xl_base_1.0.safetensors",
-        "LORA_NAME": "None",
-        "LORA_STRENGTH": 1.0,
-        "IMAGE_INPUT": "",
-        "CONTROLNET_MODEL": "None",
-        "DURATION": 16,
+    # Flux2-Klein-9B 文生图节点映射
+    FLUX_IMAGE_NODES = {
+        "prompt_node": "76",          # PrimitiveStringMultiline → 正面 prompt
+        "neg_prompt": "75:67",        # CLIPTextEncode → 负面 prompt
+        "width_node": "75:68",        # PrimitiveInt → 宽度
+        "height_node": "75:69",       # PrimitiveInt → 高度
+        "steps_node": "75:62",        # Flux2Scheduler → steps
+        "cfg_node": "75:63",          # CFGGuider → cfg
+        "seed_node": "75:73",         # RandomNoise → seed
+        "save_prefix": "9",           # SaveImage → 前缀
+    }
+
+    # Wan2.2-14B 图生视频节点映射
+    WAN_VIDEO_NODES = {
+        "prompt_node": "93",          # CLIPTextEncode → 正面 prompt
+        "neg_prompt": "89",           # CLIPTextEncode → 负面 prompt
+        "image_node": "97",           # LoadImage → 输入图片
+        "params_node": "98",          # WanImageToVideo → 宽/高/帧数
+        "video_prefix": "117",        # VHS_VideoCombine → 前缀
     }
 
     def __init__(self):
         self.loader = WorkflowLoader()
 
-    def build(
-        self,
-        template_name: str,
-        params: dict,
-        extra_nodes: list[dict] | None = None,
-    ) -> dict:
+    def build(self, template_name: str, params: dict) -> dict:
         """构建最终可执行的工作流"""
         workflow = self.loader.load(template_name)
-        final_params = {**self.DEFAULTS, **params}
-        workflow = self._inject_params(workflow, final_params)
-        if extra_nodes:
-            for node in extra_nodes:
-                node_id = str(len(workflow) + 1)
-                workflow[node_id] = node
-                logger.info(f"添加额外节点: {node_id} - {node.get('class_type')}")
+
+        if template_name == "txt2img_flux":
+            self._inject_flux(workflow, params)
+        elif template_name == "img2video_wan":
+            self._inject_wan(workflow, params)
+        else:
+            logger.warning(f"未知模板类型: {template_name}，跳过注入")
+
         logger.info(f"工作流构建完成 | 模板: {template_name} | 节点数: {len(workflow)}")
         return workflow
 
-    def _inject_params(self, workflow: dict, params: dict) -> dict:
-        """递归替换工作流 JSON 中的占位符"""
-        json_str = json.dumps(workflow)
-        for key, value in params.items():
-            placeholder = "{{" + key + "}}"
-            if placeholder in json_str:
-                json_str = json_str.replace(placeholder, str(value))
-        return json.loads(json_str)
+    def _inject_flux(self, workflow: dict, params: dict) -> dict:
+        """注入 Flux2-Klein-9B 文生图参数"""
+        nodes = self.FLUX_IMAGE_NODES
 
-    def add_lora(
-        self,
-        workflow: dict,
-        lora_name: str,
-        strength_model: float = 1.0,
-        strength_clip: float = 1.0,
-    ) -> dict:
-        """动态添加 LoRA 节点"""
-        ckpt_node_id = None
-        for node_id, node in workflow.items():
-            if node.get("class_type") in ("CheckpointLoaderSimple", "CheckpointLoader", "unCLIPCheckpointLoader"):
-                ckpt_node_id = node_id
-                break
-        if not ckpt_node_id:
-            logger.warning("未找到 Checkpoint 节点，无法添加 LoRA")
-            return workflow
-        lora_node_id = f"lora_{lora_name.replace('.','_')}"
-        workflow[lora_node_id] = {
-            "class_type": "LoraLoader",
-            "inputs": {
-                "lora_name": lora_name,
-                "strength_model": strength_model,
-                "strength_clip": strength_clip,
-                "model": [ckpt_node_id, 0],
-                "clip": [ckpt_node_id, 1],
-            },
-        }
-        for node_id, node in workflow.items():
-            if node_id == lora_node_id:
-                continue
-            inputs = node.get("inputs", {})
-            for key, value in inputs.items():
-                if isinstance(value, list) and len(value) == 2:
-                    if value[0] == ckpt_node_id and value[1] == 0:
-                        inputs[key] = [lora_node_id, 0]
-                    elif value[0] == ckpt_node_id and value[1] == 1:
-                        inputs[key] = [lora_node_id, 1]
-        logger.info(f"已添加 LoRA: {lora_name}")
+        # prompt
+        prompt = params.get("prompt", "")
+        if prompt and nodes["prompt_node"] in workflow:
+            workflow[nodes["prompt_node"]]["inputs"]["value"] = prompt
+            logger.info(f"注入正面 prompt: {prompt[:60]}...")
+
+        # 负面 prompt
+        neg = params.get("negative_text", "low quality, blurry, deformed, watermark")
+        if nodes["neg_prompt"] in workflow:
+            workflow[nodes["neg_prompt"]]["inputs"]["text"] = neg
+
+        # 宽高
+        width = params.get("width", 1024)
+        height = params.get("height", 1024)
+        if nodes["width_node"] in workflow:
+            workflow[nodes["width_node"]]["inputs"]["value"] = width
+        if nodes["height_node"] in workflow:
+            workflow[nodes["height_node"]]["inputs"]["value"] = height
+
+        # steps
+        steps = params.get("steps", 20)
+        if nodes["steps_node"] in workflow:
+            workflow[nodes["steps_node"]]["inputs"]["steps"] = steps
+
+        # cfg
+        cfg = params.get("cfg", 5)
+        if nodes["cfg_node"] in workflow:
+            workflow[nodes["cfg_node"]]["inputs"]["cfg"] = cfg
+
+        # seed（随机）
+        seed = params.get("seed", random.randint(0, 2**32 - 1))
+        if nodes["seed_node"] in workflow:
+            workflow[nodes["seed_node"]]["inputs"]["noise_seed"] = seed
+
+        # 输出文件名前缀
+        prefix = params.get("filename_prefix", "VisionFlow")
+        if nodes["save_prefix"] in workflow:
+            workflow[nodes["save_prefix"]]["inputs"]["filename_prefix"] = prefix
+
+        logger.info(f"Flux2 参数: {width}x{height} | steps={steps} | cfg={cfg} | seed={seed}")
+        return workflow
+
+    def _inject_wan(self, workflow: dict, params: dict) -> dict:
+        """注入 Wan2.2-14B 图生视频参数"""
+        nodes = self.WAN_VIDEO_NODES
+
+        # prompt（CLIPTextEncode）
+        prompt = params.get("prompt", "")
+        if prompt and nodes["prompt_node"] in workflow:
+            workflow[nodes["prompt_node"]]["inputs"]["text"] = prompt
+            logger.info(f"注入视频 prompt: {prompt[:60]}...")
+
+        # 负面 prompt
+        neg = params.get("negative_text", "low quality, blurry, deformed, watermark")
+        if nodes["neg_prompt"] in workflow:
+            workflow[nodes["neg_prompt"]]["inputs"]["text"] = neg
+
+        # 输入图片（已上传到 ComfyUI）
+        image_name = params.get("image_input", "")
+        if image_name and nodes["image_node"] in workflow:
+            workflow[nodes["image_node"]]["inputs"]["image"] = image_name
+            logger.info(f"注入输入图片: {image_name}")
+
+        # 视频参数
+        width = params.get("width", 640)
+        height = params.get("height", 640)
+        length = params.get("length", 81)  # 81帧 ≈ 5秒 @ 16fps
+        if nodes["params_node"] in workflow:
+            workflow[nodes["params_node"]]["inputs"]["width"] = width
+            workflow[nodes["params_node"]]["inputs"]["height"] = height
+            workflow[nodes["params_node"]]["inputs"]["length"] = length
+
+        # 输出前缀
+        prefix = params.get("filename_prefix", "VisionFlowVideo")
+        if nodes["video_prefix"] in workflow:
+            workflow[nodes["video_prefix"]]["inputs"]["filename_prefix"] = prefix
+
+        logger.info(f"Wan 参数: {width}x{height} | {length}帧")
         return workflow
 
     def set_image_input(self, workflow: dict, uploaded_filename: str) -> dict:
-        """设置输入图片"""
-        for node_id, node in workflow.items():
-            if node.get("class_type") == "LoadImage":
-                node["inputs"]["image"] = uploaded_filename
-                logger.info(f"设置输入图片: {uploaded_filename}")
-                break
-        return workflow
-
-    def set_model(self, workflow: dict, checkpoint_name: str) -> dict:
-        """设置 checkpoint 模型"""
-        for node_id, node in workflow.items():
-            if node.get("class_type") in ("CheckpointLoaderSimple", "CheckpointLoader"):
-                node["inputs"]["ckpt_name"] = checkpoint_name
-                logger.info(f"设置模型: {checkpoint_name}")
-                break
-        return workflow
+        """设置输入图片（兼容旧占位符模式）"""
+        return self._inject_wan(workflow, {"image_input": uploaded_filename})

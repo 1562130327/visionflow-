@@ -4,7 +4,6 @@ import random
 from loguru import logger
 from visionflow.models.task import Task, TaskStatus
 from visionflow.comfyui import ComfyUIClient, WorkflowBuilder, ComfyUIMonitor
-from visionflow.agents.workflow_agent import WorkflowAgent
 
 
 class ImagePipeline:
@@ -14,47 +13,41 @@ class ImagePipeline:
         self.client = ComfyUIClient()
         self.builder = WorkflowBuilder()
         self.monitor = ComfyUIMonitor(self.client)
-        self.workflow_agent = WorkflowAgent()
 
-    async def run(self, intent, num_candidates: int = 4) -> Task:
+    async def run(self, prompt: str, params: dict | None = None) -> Task:
         """完整的图像生成流程"""
         task = Task(
             id="task_" + str(random.randint(10000, 99999)),
-            user_input=intent.description,
+            user_input=prompt,
             status=TaskStatus.PLANNING,
         )
 
-        # 1. 选择工作流 + 构建 Prompt
-        wf_plan = await self.workflow_agent.plan_workflow(intent)
-        template = wf_plan["template"]
+        task.prompt_used = prompt
+        logger.info(f"Prompt: {prompt[:80]}...")
 
-        label = "flux" if "flux" in template else "sdxl"
-        prompt_text = intent.description
-        task.prompt_used = prompt_text
-        logger.info(f"Prompt: {prompt_text[:80]}...")
-
-        # 2. 组装并提交
-        params = wf_plan["params"]
-        params["PROMPT"] = prompt_text
+        # 构建参数
+        build_params = {
+            "prompt": prompt,
+            "negative_text": "low quality, blurry, deformed, watermark, text, signature",
+            "width": params.get("width", 1024) if params else 1024,
+            "height": params.get("height", 1024) if params else 1024,
+            "steps": params.get("steps", 20) if params else 20,
+            "cfg": params.get("cfg", 5) if params else 5,
+            "filename_prefix": params.get("filename_prefix", "VisionFlow") if params else "VisionFlow",
+        }
 
         task.status = TaskStatus.GENERATING
-        all_candidates = []
+        workflow = self.builder.build("txt2img_flux", build_params)
 
-        for i in range(num_candidates):
-            params["SEED"] = random.randint(0, 2**32 - 1)
-            workflow = self.builder.build(template, params)
+        logger.info(f"提交 Flux 任务")
+        result = await self.monitor.submit_and_wait(workflow, save_dir=f"./outputs/{task.id}")
 
-            if wf_plan.get("needs_lora") and wf_plan.get("lora_config"):
-                lora = wf_plan["lora_config"]
-                workflow = self.builder.add_lora(workflow, lora["name"], lora.get("strength", 1.0))
+        task.status = TaskStatus.COMPLETED if result.error is None else TaskStatus.FAILED
+        task.output_urls = result.output_urls
+        task.error = result.error
 
-            logger.info(f"生成候选 {i+1}/{num_candidates} (seed: {params['SEED']})")
-            result = await self.monitor.submit_and_wait(workflow, save_dir=f"./outputs/{task.id}")
-
-            if result.output_urls:
-                all_candidates.extend(result.output_urls)
-
-        task.status = TaskStatus.COMPLETED
-        task.output_urls = all_candidates
-        logger.info("图像生成完成")
+        if result.error:
+            logger.error(f"图像生成失败: {result.error}")
+        else:
+            logger.info(f"图像生成完成: {len(result.output_urls)} 张图")
         return task

@@ -129,52 +129,35 @@ class ComfyUIClient:
 
     async def _wait_polling(self, prompt_id: str) -> dict:
         """云端模式：HTTP 轮询等待（绕过 WebSocket）"""
+        import time as _time
         logger.info(f"[轮询] 开始等待: {prompt_id} (间隔 {self._poll_interval}s)")
-        deadline = time.time() + self.timeout
+        deadline = _time.time() + self.timeout
 
         async with httpx.AsyncClient() as client:
-            while time.time() < deadline:
+            while _time.time() < deadline:
                 await asyncio.sleep(self._poll_interval)
 
-                # 1. 检查是否仍在队列中
-                try:
-                    queue_resp = await client.get(
-                        f"{self.base_url}/queue", timeout=5
-                    )
-                    if queue_resp.status_code == 200:
-                        queue_data = queue_resp.json()
-                        # queue_running 和 queue_pending 里的 prompt_id
-                        still_in_queue = any(
-                            item[0] == prompt_id
-                            for item_list in [queue_data.get("queue_running", []), queue_data.get("queue_pending", [])]
-                            for item in (item_list if isinstance(item_list, list) else [])
-                        )
-                        if not still_in_queue:
-                            # 不在队列中，检查历史
-                            break
-                except Exception:
-                    pass
-
-                # 2. 检查历史
+                # 只检查 history（简单可靠）
                 try:
                     hist_resp = await client.get(
-                        f"{self.base_url}/history/{prompt_id}", timeout=5
+                        f"{self.base_url}/history/{prompt_id}", timeout=8
                     )
                     if hist_resp.status_code == 200:
                         hist_data = hist_resp.json()
                         if prompt_id in hist_data:
-                            outputs = hist_data[prompt_id].get("outputs", {})
-                            # 如果有输出但状态不对，可能是错误
-                            if outputs:
+                            entry = hist_data[prompt_id]
+                            status = entry.get("status", {})
+                            completed = status.get("completed", False)
+                            if completed:
                                 logger.info(f"[轮询] 任务完成: {prompt_id}")
-                                return hist_data[prompt_id]
+                                return entry
                 except Exception:
                     pass
 
-            # 超时后再查最后一次
+            # 超时后最后一次检查
             try:
                 hist_resp = await client.get(
-                    f"{self.base_url}/history/{prompt_id}", timeout=5
+                    f"{self.base_url}/history/{prompt_id}", timeout=8
                 )
                 if hist_resp.status_code == 200:
                     hist_data = hist_resp.json()

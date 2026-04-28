@@ -1,5 +1,6 @@
 """VisionFlow 主入口"""
 
+import httpx
 from fastapi import FastAPI
 from loguru import logger
 from contextlib import asynccontextmanager
@@ -13,11 +14,23 @@ comfyui_client = ComfyUIClient()
 node_registry = NodeRegistry(comfyui_client)
 
 
+async def check_comfyui_http() -> bool:
+    """独立检测 ComfyUI，不依赖可能过期的 client 实例"""
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{settings.comfyui_url}/system_stats", timeout=8
+            )
+            return resp.status_code == 200
+    except Exception:
+        return False
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     logger.info("🎨 VisionFlow 启动中...")
-    is_online = await comfyui_client.health_check()
+    is_online = await check_comfyui_http()
     if is_online:
         logger.info("✅ ComfyUI 连接成功")
         await node_registry.scan()
@@ -51,14 +64,14 @@ async def root():
         "name": "VisionFlow",
         "version": "0.1.0",
         "status": "running",
-        "comfyui": await comfyui_client.health_check(),
+        "comfyui": await check_comfyui_http(),
         "capabilities": node_registry.get_capabilities(),
     }
 
 
 @app.get("/health")
 async def health():
-    comfyui_ok = await comfyui_client.health_check()
+    comfyui_ok = await check_comfyui_http()
     return {
         "status": "ok" if comfyui_ok else "degraded",
         "comfyui": comfyui_ok,
