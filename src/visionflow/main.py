@@ -1,7 +1,10 @@
-"""VisionFlow 主入口"""
+"""VisionFlow 主入口 — ComfyUI + Agent + 前端"""
 
+import os
 import httpx
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from loguru import logger
 from contextlib import asynccontextmanager
 
@@ -15,7 +18,6 @@ node_registry = NodeRegistry(comfyui_client)
 
 
 async def check_comfyui_http() -> bool:
-    """独立检测 ComfyUI，不依赖可能过期的 client 实例"""
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.get(
@@ -28,14 +30,13 @@ async def check_comfyui_http() -> bool:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期管理"""
     logger.info("🎨 VisionFlow 启动中...")
     is_online = await check_comfyui_http()
     if is_online:
         logger.info("✅ ComfyUI 连接成功")
         await node_registry.scan()
     else:
-        logger.warning("⚠️ ComfyUI 未连接，请确认 ComfyUI 已启动")
+        logger.warning("⚠️ ComfyUI 未连接")
     try:
         models = await comfyui_client.get_available_models()
         logger.info(f"可用模型: {len(models)} 个")
@@ -57,9 +58,21 @@ app = FastAPI(
 
 app.include_router(router, prefix="/api/v1")
 
+# ─── 前端静态文件 ───
+frontend_dir = os.path.join(os.path.dirname(__file__), "../../frontend")
+os.makedirs(frontend_dir, exist_ok=True)
+
+# 静态文件目录（outputs 中的图片/音频可访问）
+os.makedirs("outputs/audio", exist_ok=True)
+app.mount("/static", StaticFiles(directory="."), name="static")
+
 
 @app.get("/")
-async def root():
+async def root_html():
+    """返回前端页面"""
+    index_path = os.path.join(frontend_dir, "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
     return {
         "name": "VisionFlow",
         "version": "0.1.0",
@@ -72,7 +85,4 @@ async def root():
 @app.get("/health")
 async def health():
     comfyui_ok = await check_comfyui_http()
-    return {
-        "status": "ok" if comfyui_ok else "degraded",
-        "comfyui": comfyui_ok,
-    }
+    return {"status": "ok" if comfyui_ok else "degraded", "comfyui": comfyui_ok}

@@ -1,3 +1,4 @@
+import os
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 
@@ -20,16 +21,21 @@ class Settings(BaseSettings):
     comfyui_timeout: int = 300
     comfyui_output_dir: str = "./outputs"
 
-    # LLM
-    openai_api_key: str = ""
-    openai_base_url: str = "https://api.openai.com/v1"
-    openai_model: str = "gpt-4o"
+    # LLM - DeepSeek
+    deepseek_api_key: str = ""
+    deepseek_base_url: str = "https://api.deepseek.com/v1"
+    deepseek_model: str = "deepseek-chat"
+
+    # LLM (MiMo) - 用于 TTS
+    mimo_api_key: str = ""
+    mimo_base_url: str = "https://api.xiaomimimo.com/v1"
+    mimo_model: str = "MiMo-V2.5-Pro"
 
     # Storage
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/visionflow"
     qdrant_url: str = "http://localhost:6333"
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {"env_file": os.path.join(os.path.dirname(__file__), "../../.env"), "env_file_encoding": "utf-8"}
 
     @property
     def comfyui_url(self) -> str:

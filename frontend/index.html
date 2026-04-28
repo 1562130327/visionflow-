@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VisionFlow - AI 漫剧创作工坊</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+<style>
+/* ─── CSS Reset + 变量 ─── */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --bg: #1a1a2e; --panel: #16213e; --text: #e0e0e0;
+  --accent: #e94560; --accent2: #0f3460; --border: #2a2a4a;
+  --success: #4ade80; --warn: #fbbf24; --radius: 8px;
+  --shadow: 0 2px 12px rgba(0,0,0,0.3);
+}
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; }
+
+/* ─── Top Bar ─── */
+#topbar {
+  height: 48px; background: var(--panel); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 16px; gap: 16px; 
+  flex-shrink: 0;
+}
+#topbar .logo { font-size: 18px; font-weight: 700; color: var(--accent); }
+#topbar .stage { display: flex; gap: 4px; }
+#topbar .stage span { padding: 4px 12px; border-radius: 12px; font-size: 12px;
+  background: var(--accent2); color: #888; }
+#topbar .stage span.active { background: var(--accent); color: #fff; }
+#topbar .actions { margin-left: auto; display: flex; gap: 8px; }
+.btn { padding: 6px 16px; border: none; border-radius: var(--radius); cursor: pointer;
+  font-size: 13px; transition: all .2s; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: #d63851; }
+.btn-secondary { background: var(--accent2); color: var(--text); }
+.btn-secondary:hover { background: #1a4a7a; }
+.btn-danger { background: #dc2626; color: #fff; }
+.btn-success { background: #16a34a; color: #fff; }
+
+/* ─── Main Layout ─── */
+#main { display: flex; height: calc(100vh - 48px); }
+
+/* ─── Left Panel ─── */
+#left-panel {
+  width: 240px; background: var(--panel); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; flex-shrink: 0;
+}
+#left-panel h3 { padding: 12px 12px 8px; font-size: 13px; color: #888;
+  text-transform: uppercase; letter-spacing: 1px; }
+.scene-list { flex: 1; overflow-y: auto; padding: 4px 8px; }
+.scene-item {
+  display: flex; align-items: center; gap: 8px; padding: 8px;
+  border-radius: 6px; cursor: pointer; transition: all .15s;
+  border: 1px solid transparent; margin-bottom: 4px;
+  font-size: 13px;
+}
+.scene-item:hover { background: rgba(233,69,96,0.1); }
+.scene-item.active { background: rgba(233,69,96,0.2); border-color: var(--accent); }
+.scene-item .num { width: 28px; height: 28px; background: var(--accent2);
+  border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 600; flex-shrink: 0; }
+.scene-item .thumb { width: 40px; height: 40px; background: #0d1b2a;
+  border-radius: 4px; flex-shrink: 0; overflow: hidden; }
+.scene-item .thumb img { width: 100%; height: 100%; object-fit: cover; }
+.scene-item .info { flex: 1; min-width: 0; }
+.scene-item .info .desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: #aaa; }
+.scene-item .badge { font-size: 10px; padding: 1px 6px; border-radius: 8px; background: var(--accent2); color: #888; }
+.scene-item .badge.done { background: #166534; color: var(--success); }
+
+/* ─── Canvas ─── */
+#canvas-area {
+  flex: 1; display: flex; flex-direction: column; overflow: hidden;
+}
+#canvas-toolbar {
+  height: 40px; background: var(--panel); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 12px; gap: 8px;
+}
+#canvas-toolbar .btn { font-size: 12px; padding: 4px 10px; }
+#canvas-wrapper { flex: 1; overflow: hidden; position: relative; background: #0d0d1a; }
+#canvas-wrapper canvas { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); }
+
+/* ─── Right Panel ─── */
+#right-panel {
+  width: 320px; background: var(--panel); border-left: 1px solid var(--border);
+  display: flex; flex-direction: column; flex-shrink: 0; overflow-y: auto;
+}
+#right-panel h3 { padding: 12px 12px 8px; font-size: 13px; color: #888; 
+  text-transform: uppercase; letter-spacing: 1px; }
+.prop-group { padding: 4px 12px 12px; }
+.prop-group label { display: block; font-size: 11px; color: #888; margin-bottom: 4px; }
+.prop-group input, .prop-group textarea, .prop-group select {
+  width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px;
+  background: var(--bg); color: var(--text); font-size: 13px; resize: vertical;
+}
+.prop-group textarea { min-height: 60px; }
+.prop-group input:focus, .prop-group textarea:focus { outline: none; border-color: var(--accent); }
+
+/* ─── Bottom Input Bar ─── */
+#bottom-bar {
+  padding: 12px; background: var(--panel); border-top: 1px solid var(--border);
+  display: flex; gap: 8px; align-items: center;
+}
+#bottom-bar input {
+  flex: 1; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg); color: var(--text); font-size: 14px;
+}
+#bottom-bar input:focus { outline: none; border-color: var(--accent); }
+#bottom-bar .btn { padding: 10px 20px; }
+
+/* ─── Modal ─── */
+.modal-bg {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  z-index: 1000; align-items: center; justify-content: center;
+}
+.modal-bg.show { display: flex; }
+.modal {
+  background: var(--panel); border-radius: 12px; padding: 24px;
+  width: 600px; max-height: 80vh; overflow-y: auto;
+}
+.modal h2 { margin-bottom: 16px; }
+.modal .char-card { padding: 12px; background: var(--bg); border-radius: 6px; margin-bottom: 8px; }
+.modal .char-card h4 { color: var(--accent); margin-bottom: 4px; }
+.modal .char-card p { font-size: 13px; color: #aaa; }
+
+/* ─── Loading ─── */
+.loading { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+  z-index: 999; align-items: center; justify-content: center; flex-direction: column; gap: 16px; }
+.loading.show { display: flex; }
+.spinner { width: 48px; height: 48px; border: 4px solid var(--accent2);
+  border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ─── Canvas image info ─── */
+.canvas-img-label {
+  position: absolute; bottom: 4px; left: 4px; 
+  background: rgba(0,0,0,0.7); color: #fff; font-size: 11px;
+  padding: 2px 6px; border-radius: 4px; pointer-events: none;
+}
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div class="logo">🦞 VisionFlow</div>
+  <div class="stage" id="stage-indicator">
+    <span class="active">📝 编剧</span>
+    <span>🎨 出图</span>
+    <span>🎬 视频</span>
+    <span>🎙️ 配音</span>
+  </div>
+  <div class="actions">
+    <button class="btn btn-secondary" onclick="saveProject()">💾 保存</button>
+    <button class="btn btn-secondary" onclick="exportProject()">📦 导出</button>
+  </div>
+</div>
+
+<div id="main">
+  <!-- Left Panel -->
+  <div id="left-panel">
+    <h3>🎬 分镜列表</h3>
+    <div class="scene-list" id="scene-list"></div>
+    <div style="padding: 8px; border-top: 1px solid var(--border); display: flex; gap: 4px;">
+      <button class="btn btn-secondary" onclick="batchGenerate()" style="flex:1;font-size:11px">⚡ 批量出图</button>
+      <button class="btn btn-secondary" onclick="batchVideo()" style="flex:1;font-size:11px">🎥 批量视频</button>
+    </div>
+  </div>
+
+  <!-- Canvas Area -->
+  <div id="canvas-area">
+    <div id="canvas-toolbar">
+      <button class="btn btn-secondary" onclick="fitToCanvas()">⊡ 适配</button>
+      <button class="btn btn-secondary" onclick="zoomIn()">+ 放大</button>
+      <button class="btn btn-secondary" onclick="zoomOut()">- 缩小</button>
+      <span id="zoom-label" style="font-size:11px;color:#888">100%</span>
+    </div>
+    <div id="canvas-wrapper">
+      <canvas id="main-canvas"></canvas>
+    </div>
+    <div id="bottom-bar">
+      <input type="text" id="chat-input" placeholder="说一个想法，比如「写一个校园恋爱故事」…" autofocus>
+      <button class="btn btn-primary" onclick="sendMessage()">✨ 创作</button>
+    </div>
+  </div>
+
+  <!-- Right Panel -->
+  <div id="right-panel">
+    <h3>🔧 分镜属性</h3>
+    <div id="prop-editor">
+      <div class="prop-group">
+        <label>镜号</label>
+        <input type="text" id="prop-index" disabled>
+      </div>
+      <div class="prop-group">
+        <label>画面描述</label>
+        <textarea id="prop-desc" onchange="updateScene()"></textarea>
+      </div>
+      <div class="prop-group">
+        <label>台词/旁白</label>
+        <textarea id="prop-dialogue" onchange="updateScene()"></textarea>
+      </div>
+      <div class="prop-group">
+        <label>氛围</label>
+        <input type="text" id="prop-mood" onchange="updateScene()">
+      </div>
+      <div class="prop-group">
+        <label>镜头语言</label>
+        <input type="text" id="prop-camera" onchange="updateScene()">
+      </div>
+      <div class="prop-group">
+        <label>绘图 prompt（英文）</label>
+        <textarea id="prop-prompt" rows="3" onchange="updateScene()"></textarea>
+      </div>
+      <div class="prop-group">
+        <label>负面 prompt</label>
+        <textarea id="prop-negative" rows="2" onchange="updateScene()"></textarea>
+      </div>
+      <div class="prop-group" style="display:flex;gap:4px">
+        <button class="btn btn-primary" onclick="generateCurrent()" style="flex:1">🎨 出图</button>
+        <button class="btn btn-success" onclick="generateVideoCurrent()" style="flex:1">🎬 视频</button>
+        <button class="btn btn-secondary" onclick="previewTTS()" style="flex:1">🔊 试听</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Loading -->
+<div class="loading" id="loading">
+  <div class="spinner"></div>
+  <div id="loading-text">正在创作中...</div>
+</div>
+
+<!-- Theme Result Modal -->
+<div class="modal-bg" id="theme-modal">
+  <div class="modal">
+    <h2 id="theme-title">📖 故事大纲</h2>
+    <div id="theme-content"></div>
+    <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-secondary" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="confirmTheme()">✅ 确认，生成分镜</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════
+// App State
+// ═══════════════════════════
+const state = {
+  project: null,               // { theme, title, genres, style, characters, plot }
+  scenes: [],                  // Scene[]
+  selectedIndex: 0,
+  zoom: 1.0,
+};
+
+let canvas = null;
+
+// ═══════════════════════════
+// Init Fabric.js Canvas
+// ═══════════════════════════
+function initCanvas() {
+  const wrapper = document.getElementById('canvas-wrapper');
+  canvas = new fabric.Canvas('main-canvas', {
+    width: wrapper.clientWidth - 40,
+    height: wrapper.clientHeight - 40,
+    backgroundColor: '#0d0d1a',
+    selection: false,
+  });
+  canvas.setDimensions({
+    width: wrapper.clientWidth - 40,
+    height: wrapper.clientHeight - 40,
+  });
+
+  window.addEventListener('resize', () => {
+    canvas.setDimensions({
+      width: wrapper.clientWidth - 40,
+      height: wrapper.clientHeight - 40,
+    });
+    renderCanvas();
+  });
+}
+
+function fitToCanvas() {
+  if (!canvas) return;
+  state.zoom = 1.0;
+  canvas.setZoom(state.zoom);
+  canvas.viewportTransform = [1, 0, 0, 1, 0, 0];
+  updateZoomLabel();
+  renderCanvas();
+}
+
+function zoomIn() {
+  state.zoom = Math.min(state.zoom + 0.2, 3);
+  canvas.setZoom(state.zoom);
+  updateZoomLabel();
+}
+
+function zoomOut() {
+  state.zoom = Math.max(state.zoom - 0.2, 0.2);
+  canvas.setZoom(state.zoom);
+  updateZoomLabel();
+}
+
+function updateZoomLabel() {
+  document.getElementById('zoom-label').textContent = Math.round(state.zoom * 100) + '%';
+}
+
+function renderCanvas() {
+  if (!canvas) return;
+  canvas.clear();
+  
+  const scene = state.scenes[state.selectedIndex];
+  if (!scene) return;
+
+  const cw = canvas.width;
+  const ch = canvas.height;
+
+  // Draw image if exists
+  if (scene.image_url) {
+    fabric.Image.fromURL(scene.image_url, (img) => {
+      img.set({
+        left: 0, top: 0,
+        scaleX: cw / img.width,
+        scaleY: ch / img.height,
+        selectable: false,
+        evented: false,
+      });
+      canvas.clear();
+      canvas.add(img);
+
+      // Info overlay
+      const label = new fabric.Textbox(
+        `#${scene.index} | ${scene.desc?.slice(0,30) || ''}...`,
+        {
+          left: 8, top: ch - 36,
+          width: cw - 16,
+          fontSize: 12, fill: '#ffffff',
+          backgroundColor: 'rgba(0,0,0,0.6)',
+          selectable: false, evented: false,
+        }
+      );
+      canvas.add(label);
+      canvas.renderAll();
+    }, { crossOrigin: 'anonymous' });
+  } else {
+    // Placeholder
+    const rect = new fabric.Rect({
+      left: cw/2 - 100, top: ch/2 - 100,
+      width: 200, height: 200,
+      fill: 'rgba(233,69,96,0.1)',
+      stroke: '#e94560', strokeDashArray: [5,5],
+    });
+    const text = new fabric.Text('🎨 点击 "出图" 生成', {
+      left: cw/2 - 70, top: ch/2 - 10,
+      fontSize: 16, fill: '#888',
+    });
+    canvas.add(rect, text);
+    canvas.renderAll();
+  }
+
+  // Scene desc overlay
+  const descText = new fabric.Textbox(
+    scene.dialogue ? `💬 "${scene.dialogue}"` : '',
+    {
+      left: 12, top: 8,
+      width: cw - 24,
+      fontSize: 14, fill: '#ffd700',
+      fontStyle: 'italic',
+      selectable: false, evented: false,
+    }
+  );
+  canvas.add(descText);
+  canvas.renderAll();
+}
+
+// ═══════════════════════════
+// API Calls
+// ═══════════════════════════
+const API = window.location.origin;
+
+async function apiPost(path, data) {
+  const resp = await fetch(`${API}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return await resp.json();
+}
+
+// ═══════════════════════════
+// Chat / Agent interaction
+// ═══════════════════════════
+async function sendMessage() {
+  const input = document.getElementById('chat-input');
+  const msg = input.value.trim();
+  if (!msg) return;
+  input.value = '';
+  showLoading('正在理解你的想法...');
+
+  try {
+    // Step 1: Understand theme
+    const themeResp = await apiPost('/api/v1/agent/understand', { text: msg });
+    const theme = themeResp;
+    
+    // Show modal for confirmation
+    showThemeModal(theme);
+    hideLoading();
+  } catch (e) {
+    hideLoading();
+    alert('请求失败: ' + e.message);
+  }
+}
+
+function showThemeModal(theme) {
+  document.getElementById('theme-title').textContent = `📖 ${theme.title || '故事大纲'}`;
+  const content = document.getElementById('theme-content');
+  let html = `
+    <p style="margin-bottom:12px;color:#aaa"><strong>类型：</strong>${(theme.genres || []).join(' / ')}</p>
+    <p style="margin-bottom:12px;color:#aaa"><strong>画风：</strong>${theme.style || '未指定'}</p>
+    <h4 style="margin-bottom:8px">🎭 角色</h4>
+  `;
+  (theme.characters || []).forEach(c => {
+    html += `<div class="char-card">
+      <h4>${c.name || '?'}</h4>
+      <p>${c.personality || ''} | ${c.appearance || ''}</p>
+    </div>`;
+  });
+  html += `<h4 style="margin:12px 0 8px">📜 故事大纲</h4>
+    <p style="color:#ccc;line-height:1.6">${theme.plot || ''}</p>`;
+  
+  content.innerHTML = html;
+
+  // Store theme data
+  state.project = theme;
+  document.getElementById('theme-modal').classList.add('show');
+}
+
+function closeModal() {
+  document.getElementById('theme-modal').classList.remove('show');
+}
+
+async function confirmTheme() {
+  closeModal();
+  showLoading('正在生成分镜...');
+  try {
+    const scenesResp = await apiPost('/api/v1/agent/generate-scenes', { 
+      theme: state.project,
+      count: 6,
+    });
+    state.scenes = scenesResp.scenes || [];
+    state.selectedIndex = 0;
+    renderSceneList();
+    updatePropertyPanel();
+    renderCanvas();
+  } catch (e) {
+    alert('分镜生成失败: ' + e.message);
+  }
+  hideLoading();
+}
+
+// ═══════════════════════════
+// Scene List
+// ═══════════════════════════
+function renderSceneList() {
+  const list = document.getElementById('scene-list');
+  list.innerHTML = '';
+  state.scenes.forEach((scene, i) => {
+    const div = document.createElement('div');
+    div.className = 'scene-item' + (i === state.selectedIndex ? ' active' : '');
+    div.onclick = () => selectScene(i);
+
+    let badge = '';
+    if (scene.image_url && scene.video_url) badge = '<span class="badge done">✅ 完</span>';
+    else if (scene.image_url) badge = '<span class="badge done">🖼️</span>';
+    else badge = '<span class="badge">📄</span>';
+
+    div.innerHTML = `
+      <div class="num">${scene.index}</div>
+      <div class="thumb">
+        ${scene.image_url ? `<img src="${scene.image_url}" onerror="this.style.display='none'">` : ''}
+      </div>
+      <div class="info">
+        <div>${(scene.desc || '').slice(0,20)}</div>
+        <div class="desc">${scene.mood || ''} | ${scene.camera || ''}</div>
+      </div>
+      ${badge}
+    `;
+    list.appendChild(div);
+  });
+}
+
+function selectScene(index) {
+  state.selectedIndex = index;
+  renderSceneList();
+  updatePropertyPanel();
+  renderCanvas();
+}
+
+// ═══════════════════════════
+// Property Panel
+// ═══════════════════════════
+function updatePropertyPanel() {
+  const s = state.scenes[state.selectedIndex];
+  if (!s) return;
+  document.getElementById('prop-index').value = `#${s.index}`;
+  document.getElementById('prop-desc').value = s.desc || '';
+  document.getElementById('prop-dialogue').value = s.dialogue || '';
+  document.getElementById('prop-mood').value = s.mood || '';
+  document.getElementById('prop-camera').value = s.camera || '';
+  document.getElementById('prop-prompt').value = s.prompt || '';
+  document.getElementById('prop-negative').value = s.negative || '';
+}
+
+function updateScene() {
+  const s = state.scenes[state.selectedIndex];
+  if (!s) return;
+  s.desc = document.getElementById('prop-desc').value;
+  s.dialogue = document.getElementById('prop-dialogue').value;
+  s.mood = document.getElementById('prop-mood').value;
+  s.camera = document.getElementById('prop-camera').value;
+  s.prompt = document.getElementById('prop-prompt').value;
+  s.negative = document.getElementById('prop-negative').value;
+  renderSceneList();
+}
+
+// ═══════════════════════════
+// Generate Actions
+// ═══════════════════════════
+async function generateCurrent() {
+  const s = state.scenes[state.selectedIndex];
+  if (!s || !s.prompt) return alert('请先填写 prompt');
+  showLoading('🎨 正在生成图片...');
+
+  try {
+    const resp = await apiPost('/api/v1/generate', {
+      prompt: s.prompt,
+      task_type: 'image',
+      width: 1024,
+      height: 1024,
+      steps: 20,
+      cfg: 5.0,
+    });
+    if (resp.output_urls && resp.output_urls.length > 0) {
+      s.image_url = resp.output_urls[0];
+      renderSceneList();
+      renderCanvas();
+    } else {
+      alert('出图失败: ' + (resp.error || '未知错误'));
+    }
+  } catch (e) {
+    alert('请求失败: ' + e.message);
+  }
+  hideLoading();
+}
+
+async function batchGenerate() {
+  const pending = state.scenes.filter(s => s.prompt && !s.image_url);
+  if (pending.length === 0) return alert('没有需要出图的分镜');
+  showLoading(`🎨 正在批量出图 (0/${pending.length})...`);
+
+  for (let i = 0; i < pending.length; i++) {
+    const s = pending[i];
+    updateLoading(`🎨 正在出图 ${i+1}/${pending.length}: #${s.index}`);
+    try {
+      const resp = await apiPost('/api/v1/generate', {
+        prompt: s.prompt,
+        task_type: 'image',
+        width: 1024,
+        height: 1024,
+        steps: 20,
+        cfg: 5.0,
+      });
+      if (resp.output_urls && resp.output_urls.length > 0) {
+        s.image_url = resp.output_urls[0];
+      }
+    } catch (e) {
+      console.error(`#${s.index} 失败:`, e);
+    }
+  }
+  renderSceneList();
+  if (state.scenes[state.selectedIndex]) renderCanvas();
+  hideLoading();
+}
+
+async function generateVideoCurrent() {
+  const s = state.scenes[state.selectedIndex];
+  if (!s || !s.image_url) return alert('请先生成图片');
+  showLoading('🎬 正在生成视频...');
+
+  try {
+    const resp = await apiPost('/api/v1/video-from-image', {
+      prompt: s.desc || s.prompt,
+      image_url: s.image_url,
+      width: 640,
+      height: 640,
+      length: 81,
+    });
+    if (resp.output_urls && resp.output_urls.length > 0) {
+      s.video_url = resp.output_urls[0];
+      renderSceneList();
+    } else {
+      alert('视频生成失败: ' + (resp.error || '未知错误'));
+    }
+  } catch (e) {
+    alert('请求失败: ' + e.message);
+  }
+  hideLoading();
+}
+
+async function batchVideo() {
+  const pending = state.scenes.filter(s => s.image_url && !s.video_url);
+  if (pending.length === 0) return alert('没有需要生视频的分镜');
+  showLoading(`🎬 正在批量生成视频 (0/${pending.length})...`);
+
+  for (let i = 0; i < pending.length; i++) {
+    const s = pending[i];
+    updateLoading(`🎬 视频 ${i+1}/${pending.length}: #${s.index}`);
+    try {
+      const resp = await apiPost('/api/v1/video-from-image', {
+        prompt: s.desc || s.prompt,
+        image_url: s.image_url,
+        width: 640,
+        height: 640,
+        length: 81,
+      });
+      if (resp.output_urls && resp.output_urls.length > 0) {
+        s.video_url = resp.output_urls[0];
+      }
+    } catch (e) {
+      console.error(`#${s.index} 视频失败:`, e);
+    }
+  }
+  renderSceneList();
+  hideLoading();
+}
+
+async function previewTTS() {
+  const s = state.scenes[state.selectedIndex];
+  if (!s || !s.dialogue) return alert('当前分镜没有台词');
+  showLoading('🔊 合成语音...');
+  try {
+    const resp = await apiPost('/api/v1/tts', {
+      text: s.dialogue,
+      mood: s.mood || '平静',
+    });
+    if (resp.audio_url) {
+      s.audio_url = resp.audio_url;
+      const audio = new Audio(resp.audio_url);
+      audio.play();
+    }
+  } catch (e) {
+    alert('TTS 失败: ' + e.message);
+  }
+  hideLoading();
+}
+
+// ═══════════════════════════
+// Save / Export
+// ═══════════════════════════
+function saveProject() {
+  const data = {
+    project: state.project,
+    scenes: state.scenes,
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `visionflow_${Date.now()}.json`;
+  a.click();
+}
+
+function exportProject() {
+  alert('导出功能将在后续版本中完善');
+}
+
+// ═══════════════════════════
+// Loading UI
+// ═══════════════════════════
+function showLoading(text) {
+  document.getElementById('loading-text').textContent = text || '处理中...';
+  document.getElementById('loading').classList.add('show');
+}
+
+function updateLoading(text) {
+  document.getElementById('loading-text').textContent = text;
+}
+
+function hideLoading() {
+  document.getElementById('loading').classList.remove('show');
+}
+
+// ═══════════════════════════
+// Keyboard Shortcuts
+// ═══════════════════════════
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && document.activeElement?.id === 'chat-input') {
+    sendMessage();
+  }
+  if (e.key === 'Escape') {
+    closeModal();
+  }
+});
+
+// ═══════════════════════════
+// Init
+// ═══════════════════════════
+window.addEventListener('DOMContentLoaded', () => {
+  initCanvas();
+  // Add a placeholder scene
+  state.scenes.push({
+    index: 1, desc: '输入想法开始创作', dialogue: '',
+    mood: '', camera: '', prompt: '', negative: '', image_url: null, video_url: null, audio_url: null,
+  });
+  state.selectedIndex = 0;
+  renderSceneList();
+  updatePropertyPanel();
+  renderCanvas();
+});
+</script>
+</body>
+</html>
